@@ -1,0 +1,82 @@
+# test: # test is not a reserved GitLab keyword-it's simply the name you have chosen for your job.
+#   script: 
+#     - echo "Hello Runner!!!" # Use script to specify commands for the runner to execute.
+#     - uname -a
+#     - ls -la
+#     - hostname
+#     # - cat /etc/gitlab-runner/config.toml # this will fail
+
+stages:
+  - build
+  - test
+  - docker
+  - deploy
+
+variables:
+  # Docker Hub configuration
+  DOCKER_REGISTRY: docker.io
+  DOCKER_IMAGE_NAME: hellocloud/demoapp2025:${CI_COMMIT_REF_SLUG}
+  # You can add a latest tag as well
+  # DOCKER_IMAGE_LATEST: yourusername/yourappname:latest
+  
+build-app:
+  stage: build
+  image: node:22
+  script:
+    - npm install
+    - npm install -g gatsby-cli
+    - gatsby build
+  artifacts:
+    paths:
+      - ./public
+
+test-artifact:
+  stage: test
+  image: alpine
+  script:
+    - grep -q "HelloCloud" public/index.html
+    # - grep -q "ABCD" public/index.html
+
+test-app:
+  stage: test
+  image: node:22
+  script:
+    - npm install
+    - npm install -g gatsby-cli
+    - gatsby build
+    - gatsby serve &
+    - sleep 3
+    - curl "http://localhost:9000" | grep -q "HelloCloud"
+
+build-docker-image:
+  stage: docker
+  image: docker:28.1.1
+  services:
+    - docker:28.1.1-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    # - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    # For Docker Hub:
+    # - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PASSWORD
+    # More secure way to login using password-stdin
+    - echo $DOCKER_HUB_PASSWORD | docker login -u $DOCKER_HUB_USER --password-stdin
+  script: # If you want to tag your image both with the branch name and as "latest" (common practice)
+    - docker build -t $DOCKER_IMAGE_NAME .
+    # Optional: also tag and push as latest
+    - docker tag $DOCKER_IMAGE_NAME hellocloud/demoapp2025:latest
+    - docker push $DOCKER_IMAGE_NAME
+    - docker push hellocloud/demoapp2025:latest
+  only:
+    - main
+    - master
+
+create-pages: # or pages: # The job must be named `pages` for GitLab Pages to recognize it, then you do not need `pages: true`
+  stage: deploy
+  image: alpine:latest
+  script:
+    - echo "Deploying to GitLab Pages ..."
+  pages: true # specifies that this is a Pages job and publishes the default public directory
+  artifacts:
+    paths:
+      - ./public
